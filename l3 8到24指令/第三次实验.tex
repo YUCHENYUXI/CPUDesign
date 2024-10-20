@@ -1,6 +1,35 @@
 \documentclass[withoutpreface]{cumcmthesis}
 \title{基于logisim的单周期硬布线24指令MIPS-CPU设计}
-\usepackage{graphicx} 
+\usepackage{graphicx}
+% code seg
+\usepackage{listings}
+\usepackage{xcolor}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2
+}
+\lstset{style=mystyle}
+% code end https://www.overleaf.com/learn/latex/Code_listing
 \begin{document}
 \maketitle
 \begin{tabular}{cccccc}
@@ -11,21 +40,39 @@
 	\hline
 \end{tabular}
 \begin{abstract}
-	通过本次实验，我完成了以下任务，实现了以下实验目的：
+	本实验设计了一个24指令单周期硬布线的MIPsCPU，该CPU设计的特点有：
+
+	syscall指令停机方式的实现采用\textbf{截断clk}的方式实现，相比PPT的PC控制方案，clk方式实现了\textbf{全机停机}，提升了电路整体的停机的鲁棒性。停机后重新启动的go中断的实现采用\textbf{强制执行syscall的下一条命令}，刷掉halt状态的方式实现。
+
+	在硬件电路设计上采用了\textbf{冗余设计}，可以很方便地添加24指令之外的RIJ指令。
+
+	使用三态门、T触发、移位器等组件，优化了电路设计。使用三态门和或门的配合\textbf{替换了多路选择器}。
+
+	对PC的功能进行了加强，实现了\textbf{地址自减运行}(\cref{fig:c1})。
+
+	使用原本的带显示窗口的reg file，以方便后续实验观察运行情况。
+
+	\textbf{大量使用隧道}，增强电路的逻辑性和可调试性，减少横穿电路的信号线的数量。
+
+
 	\subsection*{实验的主要目的：}
-	
+
 	在Logisim中实现能运行\textbf{24条基础指令}，能运行\textbf{标准测试程序}的Mips单周期硬布线CPU。
-	
+
+	附加项目：优化systemcall实现机制
+
 	\subsection*{实验的主要任务：}
-	
+
 	\begin{enumerate}
 		\item 构建MIPSCPU\textbf{数据通路}
 		\item \textbf{单周期硬布线控制器}实现
 		\item 软硬件\textbf{测试联调}
+		\item 附加项目：优化system call实现机制
+
 
 	\end{enumerate}
-	
-	
+
+
 
 \subsection*{实验产出：}
 \begin{enumerate}
@@ -33,7 +80,7 @@
 	\item 头哥网通关
 	\item 实验报告（\LaTeX{}）
 	\item 支持材料
-	\item \textbf{gitee}仓库增量更新 请见\url{https://gitee.com/cslearnerer/AHU-CSHT}
+	\item \textbf{github | gitee}更新 请见\url{https://gitee.com/cslearnerer/AHU-CSHT}或\url{https://github.com/YUCHENYUXI/CPUDesign}
 \end{enumerate}
 \end{abstract}
 \tableofcontents
@@ -41,21 +88,114 @@
 
 \section{【实验内容】}
 \subsection{构建MIPSCPU数据通路}
-首先，根据数据通路原理图，使用给定部件构建数据通路。这里选用原版reg file，以方便后续实验观察运行情况。
+MIPsCPU通常由数据通路和硬件控制电路两个部分组成。这两者相辅相成，共同协作，达成了ISA的正常运转。
+
+这里本实验根据HUST课程给定的数据通路原理图\cref{fig:dataroute}，结合先前8指令单周期硬布线CPU的数据通路设计方案、多周期的数据通路的简化方案，对24指令CPU的数据通路电路图进行重构设计。
+
+对于数据通路的构件，这里选用原版reg file，以方便后续实验观察运行情况；其余部件则灵活搭配，按需增减。
 \begin{figure}[!h]
 	\centering
-	\includegraphics[width=0.7\linewidth]{"../../../../../../iobsidian/AhuEx/■笔记/46 系统硬件综合训练 徐晨初/-attachments/Pasted image 20241010143111"}
-	\caption{给定的数据通路蓝图}
-	\label{fig:pasted-image-20241010143111}
+	\includegraphics[width=0.7\linewidth]{"figure/数据通路.png"}
+	\caption{经典数据通路}
+	\label{fig:dataroute}
+\end{figure}
+
+通过基础设计、大量调试、动态指令扩展（数据通路部分）、联调调通这几步工作，本实验的最终数据通路得到了实现（如下图）。
+\begin{figure}[!h]
+	\centering
+	\includegraphics[width=0.7\linewidth]{"figure/电路.png"}
+	\caption{数据通路}
+	\label{fig:cirdesign}
+\end{figure}
+
+本实验设计的数据通路（\cref{fig:cirdesign}）采取冗余设计，具有非常好的鲁棒性和可扩展性，以下是几个特色部分的展示。
+
+\subsubsection{取指令和指令分解电路设计}
+这个部分(\cref{fig:c1})的主要功能是根据PC提供的字节地址，自动计算字地址。然后将字地址打入指令RAM，取得当前指令。同时将指令分解为RIJ型指令的各个组成成分，送往其他电路使用。
+
+为了方便调试，这里还提供了反汇编、动态显示等功能。
+
+其下的电路是清零电路（清PC、LED等的数据）、和地址自减模式开关。
+\begin{figure}[!h]
+	\centering
+	\includegraphics[width=0.7\linewidth]{"figure/指令.png"}
+	\caption{指令处理}
+	\label{fig:c1}
+\end{figure}
+\subsubsection{Reg File电路设计}
+这是一个集成调试窗口是本次数据通路设计的核心区块之一，显示了当前reg file的值、当前执行指令、关键性控制信号的值、当前的写入目的 reg、当前的应写入目的reg（分I或R型指令）、当前的两个读reg地址和两个读reg的读出数值、时钟状态、写入内存状态等信息。同时提供了快捷清零按钮（需要配合\cref{code:debug24}的代码）。
+
+在调试24条指令时，大部分对指令执行情况的判断均可在这一集成调试区域完成。
+\begin{figure}[!h]
+	\centering
+	\includegraphics[width=0.7\linewidth]{"figure/reg.png"}
+	\caption{REG 综合调试区域}
+	\label{fig:c1}
+\end{figure}
+\subsubsection{SYSCALL-CLK截止方案的电路设计}
+当执行syscall指令时，如果rs寄存器读出的值不是34（0x22）那么就需要触发halt即停机状态。
+
+本实验采用的设计方案（\cref{fig:syscall}）是：通过阻断clk信号，自锁halt状态实现停机。这种方案的好处是能够实现全机的真停机，确保任何电路不会在停机期间按时序继续运行。
+
+在电路设计方面，如果\$2reg的值不是22H那么就会在syscall指令周期触发haltP信号，该信号会阻断clk信号，使得clk保持低电平，将机器停在syscall-haltP状态。
+
+当需要继续运行时，触发GO信号，该信号通过T触发器发出一个尖峰脉冲，该脉冲将充当clk信号让PC强制指向下一条指令。此时syscall指令已经过去，haltP信号无法维持，造成自锁状态消失，释放了对clk的锁定。具体原理如下图所示（\cref{fig:syscall}）。
+\begin{figure}[!h]
+	\centering
+	\includegraphics[width=0.7\linewidth]{"figure/clksyscall.png"}
+	\caption{syscall停机控制电路}
+	\label{fig:syscall}
+\end{figure}
+
+\subsection{单周期硬布线控制器实现}
+基于HUST课程和PPT，不难得到24指令硬布线控制器的真值表（l3 8到24指令/实验/单周期硬布线控制器表达式自动生成2020-3-12.xlsx）和各项的表达式。然后手动将表达式导入logisim生成硬布线控制电路（见\cref{fig:alus}和\cref{fig:ctrls}）。
+
+\begin{figure}[!h]
+	\centering
+	\includegraphics[width=0.7\linewidth]{"figure/运算器.png"}
+	\caption{运算器控制}
+	\label{fig:alus}
+\end{figure}
+
+\begin{figure}[!h]
+	\centering
+	\includegraphics[width=0.7\linewidth]{"figure/控制信号.png"}
+	\caption{控制信号}
+	\label{fig:ctrls}
 \end{figure}
 
 
-\subsection{单周期硬布线控制器实现}
-
 \subsection{软硬件测试联调}
-
-
+经过了基础数据通路设计、进阶数据通路优化、硬布线控制器设计、联调控制电路控制信号优化四个设计阶段，并查阅了大量文档、使用了大量辅助工具，本实验才通过了头哥网测试（\cref{fig:educoder}），告示实验终于完成，同时得到了如上文所示的特色电路设计。
+\begin{figure}[!h]
+	\centering
+	\includegraphics[width=0.7\linewidth]{"figure/educoder.png"}
+	\caption{头哥网通关}
+	\label{fig:educoder}
+\end{figure}
 \section{【小结讨论】}
+\subsection{小结}
+该实验极大的丰富了我对CPU设计、逻辑部件的使用方法、CPU工作原理的理解。
 
+通过本次实验我完成了24+指令的Mips单周期硬布线CPU数据通路和控制逻辑的设计工作，并完成了调试。
+
+最终的实验电路具有较普通方案更强的可拓展性、鲁棒性、兼容性。
+
+同时在本次实验的过程中我还习得了用T触发器触发正脉冲的方法，从而实现了clk halt后电路能够通过长短不定的go信号重新运行。
+\subsection{讨论}
+该电路仍然存在需要改进的地方。
+
+第一是电路逻辑图不够规整，隧道的命名需要优化；
+
+第二是探究各个电路设计中是否存在一种更好的方法来替代当前的设计，从而达到更好的性能、安全性；
+
+第三是继续寻找该CPU设计中的其他不足之处，并在接下来的实践中不断优化这些不足。
+
+
+\section{附件}
+\subsection{自建24+指令（含一些扩展指令）调试用代码清单}
+
+		\lstinputlisting[language=Octave]{实验/myprotest.md}
+		\label{code:debug24}
 
 \end{document}
